@@ -8,39 +8,44 @@ const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL;
 
 const App = () => {
   const [roomId, setRoomId] = useState('');
-  const [joined, setJoined] = useState(false);
+  const [hasJoined, setHasJoined] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState(null);
+
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [isMicOn, setIsMicOn] = useState(true);
-  const [isCamOn, setIsCamOn] = useState(true);
-  const [isRemoteMicOn, setIsRemoteMicOn] = useState(true);
-  const [isRemoteCamOn, setIsRemoteCamOn] = useState(true);
+
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [peerMic, setPeerMic] = useState(true);
+  const [peerCam, setPeerCam] = useState(true);
 
   const wsRef = useRef(null);
   const pcRef = useRef(null);
 
-  const cleanup = () => {
+  const handleCleanup = () => {
     wsRef.current?.close();
     pcRef.current?.close();
-    localStream?.getTracks().forEach((t) => t.stop());
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+    }
 
     setLocalStream(null);
     setRemoteStream(null);
-    setJoined(false);
+    setHasJoined(false);
     setRoomId('');
-    setIsMicOn(true);
-    setIsCamOn(true);
-    setIsRemoteMicOn(true);
-    setIsRemoteCamOn(true);
+    setMicOn(true);
+    setCamOn(true);
+    setPeerMic(true);
+    setPeerCam(true);
   };
 
   const toggleMic = () => {
     const track = localStream?.getAudioTracks()[0];
     if (track) {
       track.enabled = !track.enabled;
-      setIsMicOn(track.enabled);
+      setMicOn(track.enabled);
       wsRef.current?.send(JSON.stringify({ type: 'mic-status', enabled: track.enabled }));
     }
   };
@@ -49,17 +54,17 @@ const App = () => {
     const track = localStream?.getVideoTracks()[0];
     if (track) {
       track.enabled = !track.enabled;
-      setIsCamOn(track.enabled);
+      setCamOn(track.enabled);
       wsRef.current?.send(JSON.stringify({ type: 'camera-status', enabled: track.enabled }));
     }
   };
 
-  const handleLeave = () => cleanup();
+  const handleLeave = () => handleCleanup();
 
   useEffect(() => {
-    const leaveOnClose = () => cleanup();
-    window.addEventListener('beforeunload', leaveOnClose);
-    return () => window.removeEventListener('beforeunload', leaveOnClose);
+    const handleWindowClose = () => handleCleanup();
+    window.addEventListener('beforeunload', handleWindowClose);
+    return () => window.removeEventListener('beforeunload', handleWindowClose);
   }, [localStream]);
 
   const handleJoin = async (inputId) => {
@@ -68,9 +73,9 @@ const App = () => {
     setNotification(null);
 
     try {
-      const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(media);
-      setJoined(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setLocalStream(stream);
+      setHasJoined(true);
       setLoading(false);
 
       const ws = new WebSocket(SIGNALING_SERVER_URL);
@@ -81,8 +86,11 @@ const App = () => {
       });
       pcRef.current = pc;
 
-      media.getTracks().forEach((track) => pc.addTrack(track, media));
-      pc.ontrack = (e) => setRemoteStream(e.streams[0]);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (e) => {
+        setRemoteStream(e.streams[0]);
+      };
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
@@ -90,54 +98,70 @@ const App = () => {
         }
       };
 
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'join', roomID: inputId }));
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'join', roomID: inputId }));
+      };
 
       ws.onmessage = async (msg) => {
         const data = JSON.parse(msg.data);
 
-        if (data.type === 'joined') {
-          setNotification({ message: 'Joined room successfully.', type: 'success' });
-          if (data.users === 2) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            ws.send(JSON.stringify({ type: 'offer', offer }));
-          }
-        } 
-        else if (data.type === 'user-joined') {
-          setNotification({ message: 'Another user joined.', type: 'info' });
-        } 
-        else if (data.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: 'answer', answer }));
-        } 
-        else if (data.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } 
-        else if (data.type === 'candidate') {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } 
-        else if (data.type === 'user-left') {
-          setNotification({ message: 'User left the room.', type: 'warning' });
-          setRemoteStream(null);
-          setIsRemoteMicOn(true);
-          setIsRemoteCamOn(true);
-        } 
-        else if (data.type === 'mic-status') {
-          setIsRemoteMicOn(data.enabled);
-        } 
-        else if (data.type === 'camera-status') {
-          setIsRemoteCamOn(data.enabled);
-        } 
-        else if (data.type === 'room-full') {
-          setNotification({ message: 'Room full. Try another.', type: 'error' });
-          cleanup();
+        switch (data.type) {
+          case 'joined':
+            setNotification({ message: 'Connected to the room.', type: 'success' });
+            if (data.users === 2) {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              ws.send(JSON.stringify({ type: 'offer', offer }));
+            }
+            break;
+
+          case 'user-joined':
+            setNotification({ message: 'Someone just joined the room.', type: 'info' });
+            break;
+
+          case 'offer':
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: 'answer', answer }));
+            break;
+
+          case 'answer':
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            break;
+
+          case 'candidate':
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            break;
+
+          case 'user-left':
+            setNotification({ message: 'Peer left the call.', type: 'warning' });
+            setRemoteStream(null);
+            setPeerMic(true);
+            setPeerCam(true);
+            break;
+
+          case 'mic-status':
+            setPeerMic(data.enabled);
+            break;
+
+          case 'camera-status':
+            setPeerCam(data.enabled);
+            break;
+
+          case 'room-full':
+            setNotification({ message: 'Room is already full. Try another one.', type: 'error' });
+            handleCleanup();
+            break;
+
+          default:
+            console.warn('Unhandled message type:', data.type);
         }
       };
 
       ws.onerror = () => {
-        setNotification({ message: 'Connection error.', type: 'error' });
+        console.error('WebSocket connection error');
+        setNotification({ message: 'Oops! Something went wrong.', type: 'error' });
       };
 
       ws.onclose = () => {
@@ -146,11 +170,12 @@ const App = () => {
         wsRef.current = null;
         pcRef.current = null;
         setRemoteStream(null);
-        setIsRemoteMicOn(true);
-        setIsRemoteCamOn(true);
+        setPeerMic(true);
+        setPeerCam(true);
       };
-    } catch {
-      setNotification({ message: 'Camera or mic access denied.', type: 'error' });
+    } catch (err) {
+      console.error('Media access denied or error: ', err);
+      setNotification({ message: 'Please allow camera and mic access.', type: 'error' });
       setLoading(false);
     }
   };
@@ -168,19 +193,19 @@ const App = () => {
         />
       )}
 
-      {!joined && !loading && <RoomJoinForm onJoin={handleJoin} />}
+      {!hasJoined && !loading && <RoomJoinForm onJoin={handleJoin} />}
       {loading && <Loader message="Connecting..." />}
-      {joined && (
+      {hasJoined && (
         <VideoPanel
           localStream={localStream}
           remoteStream={remoteStream}
           onToggleMic={toggleMic}
           onToggleCamera={toggleCam}
           onLeave={handleLeave}
-          isMicEnabled={isMicOn}
-          isCameraEnabled={isCamOn}
-          isRemoteMicEnabled={isRemoteMicOn}
-          isRemoteCameraEnabled={isRemoteCamOn}
+          isMicEnabled={micOn}
+          isCameraEnabled={camOn}
+          isRemoteMicEnabled={peerMic}
+          isRemoteCameraEnabled={peerCam}
         />
       )}
     </div>
