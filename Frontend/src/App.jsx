@@ -102,27 +102,35 @@ const App = () => {
             await pc.setLocalDescription(offer);
             ws.send(JSON.stringify({ type: 'offer', offer }));
           }
-        } else if (data.type === 'user-joined') {
+        } 
+        else if (data.type === 'user-joined') {
           setNotification({ message: 'Another user joined.', type: 'info' });
-        } else if (data.type === 'offer') {
+        } 
+        else if (data.type === 'offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           ws.send(JSON.stringify({ type: 'answer', answer }));
-        } else if (data.type === 'answer') {
+        } 
+        else if (data.type === 'answer') {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } else if (data.type === 'candidate') {
+        } 
+        else if (data.type === 'candidate') {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } else if (data.type === 'user-left') {
+        } 
+        else if (data.type === 'user-left') {
           setNotification({ message: 'User left the room.', type: 'warning' });
           setRemoteStream(null);
           setIsRemoteMicOn(true);
           setIsRemoteCamOn(true);
-        } else if (data.type === 'mic-status') {
+        } 
+        else if (data.type === 'mic-status') {
           setIsRemoteMicOn(data.enabled);
-        } else if (data.type === 'camera-status') {
+        } 
+        else if (data.type === 'camera-status') {
           setIsRemoteCamOn(data.enabled);
-        } else if (data.type === 'room-full') {
+        } 
+        else if (data.type === 'room-full') {
           setNotification({ message: 'Room full. Try another.', type: 'error' });
           cleanup();
         }
