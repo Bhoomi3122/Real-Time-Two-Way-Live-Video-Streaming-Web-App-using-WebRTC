@@ -4,7 +4,7 @@ import VideoPanel from './components/VideoPanel';
 import Notification from './components/Notification';
 import Loader from './components/Spinner';
 
-const SIGNALING_SERVER_URL = 'ws://localhost:5000';
+const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL;
 
 const App = () => {
   const [roomId, setRoomId] = useState('');
